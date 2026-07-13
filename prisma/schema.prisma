@@ -1,0 +1,321 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlserver"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int     @id @default(autoincrement()) @map("id")
+  email        String  @unique @db.VarChar(255)
+  name         String  @db.VarChar(255)
+  passwordHash String? @map("password_hash") @db.VarChar(255)
+  role         String  @db.VarChar(20)
+  userType     String  @map("user_type") @db.VarChar(20)
+  authType     String  @map("auth_type") @db.VarChar(20)
+  ssoId        String? @map("sso_id") @db.VarChar(255)
+  ssoProvider  String? @map("sso_provider") @db.VarChar(50)
+
+  @@map("users")
+}
+
+model Uom {
+  id        Int       @id @default(autoincrement()) @map("Id")
+  uomCode   String    @unique @map("UomCode") @db.NVarChar(20)
+  uomName   String    @map("UomName") @db.NVarChar(100)
+  createdAt DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt DateTime? @map("UpdatedAt") @db.DateTime
+  items     Item[]
+
+  @@map("Uoms")
+}
+
+model ItemClass {
+  id         Int       @id @default(autoincrement()) @map("Id")
+  itmsGrpCod String    @unique @map("ItmsGrpCod") @db.NVarChar(50)
+  initials   String    @map("Initials") @db.NVarChar(50)
+  itmsGrpNam String    @map("ItmsGrpNam") @db.NVarChar(150)
+  isActive   Boolean   @default(true) @map("IsActive")
+  createdAt  DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt  DateTime? @map("UpdatedAt") @db.DateTime
+  items      Item[]
+
+  @@map("ItemClasses")
+}
+
+model ItemGroup {
+  itemGroupId   String    @id @map("ItemGroupID") @db.NVarChar(50)
+  initials      String    @map("Initials") @db.NVarChar(50)
+  name          String    @map("Name") @db.NVarChar(150)
+  itemClassCode String    @map("ItemClassCode") @db.NVarChar(50)
+  itemClass     String    @map("ItemClass") @db.NVarChar(150)
+  category      String    @map("Category") @db.NVarChar(50)
+  isActive      Boolean   @default(true) @map("IsActive")
+  createdAt     DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt     DateTime? @map("UpdatedAt") @db.DateTime
+
+  @@map("ItemGroups")
+}
+
+model Warehouse {
+  id        Int       @id @default(autoincrement()) @map("Id")
+  whCode    String    @unique @map("WhCode") @db.NVarChar(20)
+  whName    String    @map("WhName") @db.NVarChar(100)
+  address   String?   @map("Address") @db.NVarChar(255)
+  isActive  Boolean   @default(true) @map("IsActive")
+  createdAt DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt DateTime? @map("UpdatedAt") @db.DateTime
+
+  @@map("Warehouses")
+}
+
+model PaymentTerm {
+  id          Int       @id @default(autoincrement()) @map("Id")
+  groupNum    Int       @map("GroupNum")
+  paymentTerm String    @map("PaymentTerm") @db.NVarChar(100)
+  createdAt   DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt   DateTime? @map("UpdatedAt") @db.DateTime
+
+  @@map("PaymentTerms")
+}
+
+model TaxGroup {
+  id        Int       @id @default(autoincrement()) @map("Id")
+  taxCode   String    @unique @map("TaxCode") @db.NVarChar(50)
+  taxName   String    @map("TaxName") @db.NVarChar(100)
+  taxRate   Decimal   @map("TaxRate") @db.Decimal(9, 4)
+  category  String    @map("Category") @db.NVarChar(50)
+  createdAt DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt DateTime? @map("UpdatedAt") @db.DateTime
+
+  @@map("TaxGroups")
+}
+
+model Vendor {
+  id            Int       @id @default(autoincrement()) @map("Id")
+  vendorCode    String    @map("VendorCode") @db.NVarChar(20)
+  vendorName    String    @map("VendorName") @db.NVarChar(150)
+  contactNumber String?   @map("ContactNumber") @db.NVarChar(50)
+  email         String?   @map("Email") @db.NVarChar(100)
+  address       String?   @map("Address") @db.NVarChar(255)
+  taxIDNo       String?   @map("TaxIDNo") @db.NVarChar(50)
+  paymentTerms  String?   @map("PaymentTerms") @db.NVarChar(100)
+  taxStatus     Boolean   @map("TaxStatus")
+  wtLiable      Boolean   @map("WTLiable")
+  wtCode        String?   @map("WTCode") @db.NVarChar(20)
+  wtName        String?   @map("WTName") @db.NVarChar(100)
+  wtRate        Decimal?  @map("WTRate") @db.Decimal(9, 4)
+  isActive      Boolean   @default(true) @map("IsActive")
+  entity        String    @map("Entity") @db.NVarChar(20)
+  createdAt     DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt     DateTime? @map("UpdatedAt") @db.DateTime
+
+  @@map("Vendors")
+}
+
+model Item {
+  itemCode            String     @id @map("ItemCode") @db.NVarChar(50)
+  itemDescription     String     @map("ItemDescription") @db.NVarChar(255)
+  isActive            Boolean    @default(true) @map("IsActive")
+  category            String     @map("Category") @db.NVarChar(50)
+  itemClassCode       String?    @map("ItemClassCode") @db.NVarChar(50)
+  itemClassName       String?    @map("ItemClassName") @db.NVarChar(150)
+  uomId               Int?       @map("UOM_ID")
+  uom                 String?    @map("UOM") @db.NVarChar(50)
+  leadTime            Int        @default(0) @map("LeadTime")
+  isWHInventory       Boolean    @default(false) @map("IsWHInventory")
+  isSalesInventory    Boolean    @default(false) @map("IsSalesInventory")
+  isPurchaseInventory Boolean    @default(false) @map("IsPurchaseInventory")
+  itemGroupName       String?    @map("ItemGroupName") @db.NVarChar(150)
+  createdAt           DateTime   @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt           DateTime?  @map("UpdatedAt") @db.DateTime
+  itemClass           ItemClass? @relation(fields: [itemClassCode], references: [itmsGrpCod])
+  uomRef              Uom?       @relation(fields: [uomId], references: [id])
+
+  @@map("Items")
+}
+
+model PurchaseOrder {
+  id            Int                 @id @default(autoincrement()) @map("Id")
+  poNumber      String              @unique @map("PoNumber") @db.NVarChar(50)
+  pin           String?             @map("Pin") @db.NVarChar(50)
+  company       String              @map("Company") @db.NVarChar(50)
+  vendorName    String              @map("VendorName") @db.NVarChar(200)
+  vendorCode    String              @map("VendorCode") @db.NVarChar(50)
+  project       String              @map("Project") @db.NVarChar(100)
+  entity        String              @map("Entity") @db.NVarChar(50)
+  deliveryDate  DateTime            @map("DeliveryDate") @db.DateTime
+  warehouseCode String              @map("WarehouseCode") @db.NVarChar(50)
+  warehouseName String              @map("WarehouseName") @db.NVarChar(200)
+  isWarehouse   Boolean             @map("IsWarehouse")
+  status        String              @map("Status") @db.NVarChar(50)
+  aimsStatus    String?             @map("aims_status") @db.NVarChar(20)
+  createdAt     DateTime            @default(now()) @map("CreatedAt") @db.DateTime
+  lines         PurchaseOrderLine[]
+
+  @@map("PurchaseOrders")
+}
+
+model PurchaseOrderLine {
+  id          Int           @id @default(autoincrement()) @map("Id")
+  poNumber    String        @map("PoNumber") @db.NVarChar(50)
+  itemCode    String        @map("ItemCode") @db.NVarChar(50)
+  description String        @map("Description") @db.NVarChar(Max)
+  quantity    Decimal       @map("Quantity") @db.Decimal(18, 6)
+  uom         String        @map("Uom") @db.NVarChar(20)
+  vendorPrice Decimal       @map("VendorPrice") @db.Decimal(18, 6)
+  order       PurchaseOrder @relation(fields: [poNumber], references: [poNumber], onDelete: Cascade)
+
+  @@index([poNumber])
+  @@map("PurchaseOrderLines")
+}
+
+model PurchaseRequest {
+  id            Int                   @id @default(autoincrement()) @map("Id")
+  company       String                @map("Company") @db.NVarChar(20)
+  prRefNo       String                @unique @map("PrRefNo") @db.NVarChar(50)
+  pin           String                @map("PIN") @db.NVarChar(50)
+  requestDate   DateTime              @map("RequestDate") @db.Date
+  requiredDate  DateTime              @map("RequiredDate") @db.Date
+  comments      String?               @map("Comments") @db.NVarChar(500)
+  preparedBy    String                @map("PreparedBy") @db.NVarChar(100)
+  reviewedBy    String?               @map("ReviewedBy") @db.NVarChar(100)
+  approvedBy    String?               @map("ApprovedBy") @db.NVarChar(100)
+  email         String                @map("Email") @db.NVarChar(100)
+  siRefNo       String?               @map("SiRefNo") @db.NVarChar(50)
+  status        String                @default("PENDING") @map("Status") @db.NVarChar(20)
+  isPostedToSap Boolean               @default(false) @map("IsPostedToSap")
+  isCancelled   Boolean               @default(false) @map("IsCancelled")
+  attemptCount  Int                   @default(0) @map("AttemptCount")
+  createdAt     DateTime              @default(now()) @map("CreatedAt") @db.DateTime
+  lines         PurchaseRequestLine[]
+
+  @@map("PurchaseRequests")
+}
+
+model PurchaseRequestLine {
+  id                Int             @id @default(autoincrement()) @map("Id")
+  purchaseRequestId Int             @map("PurchaseRequestId")
+  itemCode          String          @map("ItemCode") @db.NVarChar(50)
+  description       String          @map("Description") @db.NVarChar(255)
+  quantity          Decimal         @map("Quantity") @db.Decimal(18, 2)
+  warehouseCode     String          @map("WarehouseCode") @db.NVarChar(20)
+  requiredDate      DateTime        @map("RequiredDate") @db.Date
+  price             Decimal         @map("Price") @db.Decimal(18, 2)
+  vendorCode        String?         @map("VendorCode") @db.NVarChar(50)
+  lineRemarks       String?         @map("LineRemarks") @db.NVarChar(500)
+  request           PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseRequestId])
+  @@map("PurchaseRequestLines")
+}
+
+model Project {
+  id                   Int                     @id @default(autoincrement()) @map("Id")
+  pin                  String                  @unique @map("pin") @db.NVarChar(50)
+  projectName          String                  @map("projectName") @db.NVarChar(255)
+  projectDescription   String?                 @map("projectDescription") @db.NVarChar(500)
+  company              String                  @map("company") @db.NVarChar(50)
+  status               String                  @map("status") @db.NVarChar(20)
+  d5ProjectCode        String?                 @map("D5_ProjectCode") @db.NVarChar(100)
+  d1ClientCode         String?                 @map("d1ClientCode") @db.NVarChar(100)
+  d2CostCenter         String?                 @map("d2CostCenter") @db.NVarChar(100)
+  d3BusTypeServiceType String?                 @map("d3BusTypeServiceType") @db.NVarChar(150)
+  d4Location           String?                 @map("d4Location") @db.NVarChar(100)
+  buCode               String?                 @map("buCode") @db.NVarChar(50)
+  bookEntry            String?                 @map("BookEntry") @db.NVarChar(50)
+  startDate            DateTime?               @map("startDate") @db.DateTime
+  endDate              DateTime?               @map("endDate") @db.DateTime
+  sapStatus            String?                 @map("sap_status") @db.NVarChar(20)
+  sapUploadStatus      String?                 @map("SapUploadStatus") @db.NVarChar(20)
+  sapLastError         String?                 @map("SapLastError") @db.NVarChar(Max)
+  sapRetryCount        Int                     @default(0) @map("SapRetryCount")
+  createdAt            DateTime                @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt            DateTime?               @map("UpdatedAt") @db.DateTime
+  costCenterSyncs      ProjectCostCenterSync[]
+
+  @@map("Projects")
+}
+
+model ProjectCostCenterSync {
+  id            Int       @id @default(autoincrement()) @map("Id")
+  pin           String    @map("PIN") @db.NVarChar(50)
+  dimensionCode Int       @map("DimensionCode")
+  code          String    @map("Code") @db.NVarChar(100)
+  name          String    @map("Name") @db.NVarChar(255)
+  status        String    @map("Status") @db.NVarChar(20)
+  bookEntry     String?   @map("BookEntry") @db.NVarChar(50)
+  startDate     DateTime? @map("StartDate") @db.DateTime
+  endDate       DateTime? @map("EndDate") @db.DateTime
+  sapStatus     String?   @map("SapStatus") @db.NVarChar(20)
+  sapLastError  String?   @map("SapLastError") @db.NVarChar(Max)
+  sapRetryCount Int       @default(0) @map("SapRetryCount")
+  sapUploadedAt DateTime? @map("SapUploadedAt") @db.DateTime
+  createdAt     DateTime  @default(now()) @map("CreatedAt") @db.DateTime
+  updatedAt     DateTime? @map("UpdatedAt") @db.DateTime
+  project       Project   @relation(fields: [pin], references: [pin], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([pin])
+  @@map("ProjectCostCenterSync")
+}
+
+model TransactionType {
+  id        Int        @id @default(autoincrement()) @map("Id")
+  code      String     @unique @map("Code") @db.NVarChar(100)
+  isActive  Boolean    @default(true) @map("IsActive")
+  auditLogs AuditLog[]
+
+  @@map("TransactionTypes")
+}
+
+model AuditLog {
+  id                Int                    @id @default(autoincrement()) @map("Id")
+  transactionTypeId Int                    @map("TransactionTypeId")
+  runId             String                 @map("RunId") @db.UniqueIdentifier
+  status            String                 @map("Status") @db.NVarChar(20)
+  startedAt         DateTime               @map("StartedAt") @db.DateTime
+  endedAt           DateTime?              @map("EndedAt") @db.DateTime
+  totalRecords      Int                    @default(0) @map("TotalRecords")
+  insertedCount     Int                    @default(0) @map("InsertedCount")
+  updatedCount      Int                    @default(0) @map("UpdatedCount")
+  skippedCount      Int                    @default(0) @map("SkippedCount")
+  failedCount       Int                    @default(0) @map("FailedCount")
+  errorMessage      String?                @map("ErrorMessage") @db.NVarChar(1000)
+  transactionType   TransactionType        @relation(fields: [transactionTypeId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  details           AuditLogDetail[]
+  items             AuditTransactionItem[]
+
+  @@index([transactionTypeId])
+  @@index([runId])
+  @@map("AuditLogs")
+}
+
+model AuditLogDetail {
+  id           Int      @id @default(autoincrement()) @map("Id")
+  auditLogId   Int      @map("AuditLogId")
+  level        String   @map("Level") @db.NVarChar(10)
+  step         String   @map("Step") @db.NVarChar(50)
+  message      String   @map("Message") @db.NVarChar(1000)
+  referenceKey String?  @map("ReferenceKey") @db.NVarChar(100)
+  auditLog     AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+
+  @@index([auditLogId])
+  @@map("AuditLogDetails")
+}
+
+model AuditTransactionItem {
+  id           Int      @id @default(autoincrement()) @map("Id")
+  auditLogId   Int      @map("AuditLogId")
+  entity       String   @map("Entity") @db.NVarChar(100)
+  referenceKey String   @map("ReferenceKey") @db.NVarChar(100)
+  action       String   @map("Action") @db.NVarChar(20)
+  status       String   @map("Status") @db.NVarChar(20)
+  errorMessage String?  @map("ErrorMessage") @db.NVarChar(1000)
+  payload      String?  @map("Payload") @db.NVarChar(Max)
+  auditLog     AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
+
+  @@index([auditLogId])
+  @@map("AuditTransactionItems")
+}
