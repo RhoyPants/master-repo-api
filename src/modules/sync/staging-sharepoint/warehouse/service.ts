@@ -243,3 +243,161 @@ export const runWarehouseStagingSharePointSync = async () => {
     endedAt: new Date().toISOString(),
   };
 };
+
+const normalizeWhCodes = (whCodes: string[]): string[] => {
+  const normalized = whCodes
+    .map((code) => code.trim().toUpperCase())
+    .filter((code) => code.length > 0);
+
+  return [...new Set(normalized)];
+};
+
+const fetchActiveStagingWarehousesByCodes = async (whCodes: string[]) => {
+  const normalized = normalizeWhCodes(whCodes);
+  const found = await prisma.warehouse.findMany({
+    where: { whCode: { in: normalized } },
+    orderBy: { whCode: "asc" },
+  });
+
+  const foundCodes = found.map((w) => w.whCode);
+  const missing = normalized.filter((code) => !foundCodes.includes(code));
+
+  return {
+    requestedCodes: normalized,
+    foundWarehouses: found,
+    missingCodes: missing,
+  };
+};
+
+const syncWarehousesToSharePoint = async (
+  warehouses: Awaited<ReturnType<typeof prisma.warehouse.findMany>>,
+  token: string,
+  siteId: string,
+  listId: string,
+) => {
+  let inserted = 0;
+  let updated = 0;
+  let skipped = 0;
+  let failed = 0;
+  const failedItems: WarehouseSyncItem[] = [];
+
+  for (const warehouse of warehouses) {
+    const whCode = norm(warehouse.whCode);
+    let pendingAction: "INSERT" | "UPDATE" = "UPDATE";
+
+    const payloadFields = {
+      wh_code: whCode,
+      wh_name: norm(warehouse.whName),
+      wh_address: norm(warehouse.address),
+      isActive: warehouse.isActive ? 1 : 0,
+    };
+
+    try {
+      const existing = await getExistingWarehouse(token, siteId, listId, whCode);
+
+      if (!existing) {
+        pendingAction = "INSERT";
+        const createUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items`;
+        const createResponse = await graphFetchWithRetry(createUrl, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fields: {
+              Title: randomUUID(),
+              ...payloadFields,
+            },
+          }),
+        });
+        await ensureOk(createResponse, `Create warehouse ${whCode}`);
+
+        inserted++;
+        continue;
+      }
+
+      const changes = getChanges(existing.fields ?? {}, {
+        whName: payloadFields.wh_name,
+        address: payloadFields.wh_address,
+        isActive: payloadFields.isActive,
+      });
+
+      if (changes.length === 0) {
+        skipped++;
+        continue;
+      }
+
+      const updateUrl = `https://graph.microsoft.com/v1.0/sites/${siteId}/lists/${listId}/items/${existing.id}/fields`;
+      const updateResponse = await graphFetchWithRetry(updateUrl, {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payloadFields),
+      });
+      await ensureOk(updateResponse, `Update warehouse ${whCode}`);
+
+      updated++;
+    } catch (error) {
+      failed++;
+      failedItems.push({
+        whCode,
+        action: pendingAction,
+        status: "FAILED",
+        error: (error as Error).message,
+      });
+    }
+  }
+
+  return {
+    totalRecords: warehouses.length,
+    insertedCount: inserted,
+    updatedCount: updated,
+    skippedCount: skipped,
+    failedCount: failed,
+    failedItems,
+  };
+};
+
+export const runWarehouseStagingSharePointSyncByCodes = async (whCodes: string[]) => {
+  const { warehouseSiteId, warehouseListId } = env.sharePoint;
+
+  if (!warehouseSiteId || !warehouseListId) {
+    throw new Error("Missing SharePoint warehouse target (SP_WH_SITE_ID, SP_WH_LIST_ID)");
+  }
+
+  const runId = randomUUID();
+  const startedAt = new Date();
+
+  const { requestedCodes, foundWarehouses, missingCodes } =
+    await fetchActiveStagingWarehousesByCodes(whCodes);
+
+  const token = await getAccessToken();
+  const result = await syncWarehousesToSharePoint(
+    foundWarehouses,
+    token,
+    warehouseSiteId,
+    warehouseListId,
+  );
+
+  const status =
+    result.failedCount > 0 && result.insertedCount + result.updatedCount + result.skippedCount > 0
+      ? "PARTIAL"
+      : result.failedCount > 0
+        ? "FAILED"
+        : "SUCCESS";
+
+  return {
+    module: "staging-sharepoint",
+    entity: "warehouse",
+    runId,
+    status,
+    requestedCodes,
+    missingCodes,
+    ...result,
+    startedAt: startedAt.toISOString(),
+    endedAt: new Date().toISOString(),
+  };
+};

@@ -3,7 +3,7 @@ export const runSapStagingSync = async () => {
     module: "sap-staging",
     status: "queued",
     message: "SAP -> Staging sync module is ready",
-    availableSubModules: ["warehouse"],
+    availableSubModules: ["warehouse", "item-class", "uom", "item"],
     startedAt: new Date().toISOString(),
   };
 };
