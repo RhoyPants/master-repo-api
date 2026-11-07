@@ -12,9 +12,9 @@ interface SAPItemRow {
   UOM: string | null;
   UOM_ID: number | null;
   LeadTime: number | null;
-  iswhInventory: number;
-  isSalesInventory: number;
-  isPurchaseInventory: number;
+  iswhInventory: string | number | boolean | null;
+  isSalesInventory: string | number | boolean | null;
+  isPurchaseInventory: string | number | boolean | null;
   ItemGroupName: string | null;
 }
 
@@ -44,6 +44,21 @@ interface SyncResult {
 
 const TRANSACTION_CODE = "SAP2SDB_ITEM";
 const TRANSACTION_CODE_SELECTED = "SAP2SDB_ITEM_SELECTED";
+
+/* ===================== HELPER FUNCTIONS ===================== */
+
+function normalizeSapFlag(value: unknown): boolean {
+  if (typeof value === "boolean") return value;
+
+  if (typeof value === "number") return value === 1;
+
+  const normalized = String(value ?? "").trim().toUpperCase();
+
+  if (["Y", "YES", "TRUE", "1"].includes(normalized)) return true;
+  if (["N", "NO", "FALSE", "0", ""].includes(normalized)) return false;
+
+  return false;
+}
 
 /* ===================== FETCH FUNCTIONS ===================== */
 
@@ -357,9 +372,9 @@ async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode
         uom: normalizedUomCode || null,
         uomId: resolvedUomId,
         leadTime: row.LeadTime ?? 0,
-        isWHInventory: row.iswhInventory === 1,
-        isSalesInventory: row.isSalesInventory === 1,
-        isPurchaseInventory: row.isPurchaseInventory === 1,
+        isWHInventory: normalizeSapFlag(row.iswhInventory),
+        isSalesInventory: normalizeSapFlag(row.isSalesInventory),
+        isPurchaseInventory: normalizeSapFlag(row.isPurchaseInventory),
         itemGroupName: row.ItemGroupName ?? null,
         updatedAt: new Date(),
       };
@@ -468,84 +483,55 @@ async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode
           code,
           action,
           status: "SUCCESS",
-          reason: "Already up-to-date in staging",
         });
-      } else {
-        syncResult.data.push({
-          code,
-          action,
-          status: "SUCCESS",
-        });
+        syncResult.successCount++;
+        syncResult.skippedCount++;
+        continue;
       }
 
-      // Log audit
+      syncResult.processedCount++;
+      syncResult.successCount++;
+      syncResult.data.push({
+        code,
+        action,
+        status: "SUCCESS",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      syncResult.failedCount++;
+      syncResult.failedRows.push({ code: String(row.ItemCode ?? "UNKNOWN"), error: message });
+      syncResult.data.push({
+        code: String(row.ItemCode ?? "UNKNOWN"),
+        action: "UPSERT",
+        status: "FAILED",
+        error: message,
+      });
+
       await prisma.auditTransactionItem.create({
         data: {
           auditLogId: auditLog.id,
           entity: "Item",
-          referenceKey: code,
-          action,
-          status: "SUCCESS",
+          referenceKey: String(row.ItemCode ?? "UNKNOWN"),
+          action: "UPSERT",
+          status: "FAILED",
+          errorMessage: message,
         },
       });
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      syncResult.failedCount++;
-      syncResult.failedRows.push({ code: row.ItemCode ?? "UNKNOWN", error: errorMessage });
-      syncResult.data.push({
-        code: String(row.ItemCode ?? "UNKNOWN").trim().toUpperCase() || "UNKNOWN",
-        action: "UPSERT",
-        status: "FAILED",
-        error: errorMessage,
-      });
-
-      try {
-        await prisma.auditTransactionItem.create({
-          data: {
-            auditLogId: auditLog.id,
-            entity: "Item",
-            referenceKey: row.ItemCode ?? "UNKNOWN",
-            action: "UPSERT",
-            status: "FAILED",
-            errorMessage,
-          },
-        });
-      } catch {
-      }
     }
   }
 
-  const skippedCount = syncResult.totalRows - syncResult.insertedCount - syncResult.updatedCount - syncResult.failedCount;
-  const finalStatus = syncResult.failedCount > 0 && (syncResult.insertedCount + syncResult.updatedCount + skippedCount) > 0
-    ? "PARTIAL"
-    : syncResult.failedCount > 0
-      ? "FAILED"
-      : "SUCCESS";
-
-  syncResult.skippedCount = skippedCount;
-  syncResult.processedCount = syncResult.totalRows;
-  syncResult.successCount = syncResult.insertedCount + syncResult.updatedCount + skippedCount;
-  syncResult.status = finalStatus;
+  syncResult.status = syncResult.failedCount > 0 && syncResult.successCount === 0 ? "FAILED" : syncResult.failedCount > 0 ? "PARTIAL" : "SUCCESS";
   syncResult.endedAt = new Date().toISOString();
 
   await prisma.auditLog.update({
     where: { id: auditLog.id },
     data: {
-      status: finalStatus,
-      endedAt: new Date(syncResult.endedAt),
+      status: syncResult.status,
+      endedAt: new Date(),
       insertedCount: syncResult.insertedCount,
       updatedCount: syncResult.updatedCount,
-      skippedCount,
+      skippedCount: syncResult.skippedCount,
       failedCount: syncResult.failedCount,
-    },
-  });
-
-  await prisma.auditLogDetail.create({
-    data: {
-      auditLogId: auditLog.id,
-      level: "INFO",
-      step: "COMPLETE",
-      message: `Sync complete — inserted: ${syncResult.insertedCount}, updated: ${syncResult.updatedCount}, skipped: ${skippedCount}, failed: ${syncResult.failedCount}`,
     },
   });
 
