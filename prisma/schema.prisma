@@ -7,6 +7,34 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model IntegrationMapping {
+  id         Int      @id @default(autoincrement()) @map("Id")
+  provider   String   @map("Provider") @db.NVarChar(30)
+  module     String   @map("Module") @db.NVarChar(50)
+  configJson String   @map("ConfigJson") @db.NVarChar(Max)
+  enabled    Boolean  @default(false) @map("Enabled")
+  version    Int      @default(1) @map("Version")
+  updatedBy  String   @map("UpdatedBy") @db.NVarChar(255)
+  updatedAt  DateTime @default(now()) @map("UpdatedAt") @db.DateTime2
+
+  @@unique([provider, module])
+  @@map("IntegrationMappings")
+}
+
+model IntegrationMappingVersion {
+  id         Int      @id @default(autoincrement()) @map("Id")
+  provider   String   @map("Provider") @db.NVarChar(30)
+  module     String   @map("Module") @db.NVarChar(50)
+  configJson String   @map("ConfigJson") @db.NVarChar(Max)
+  enabled    Boolean  @map("Enabled")
+  version    Int      @map("Version")
+  updatedBy  String   @map("UpdatedBy") @db.NVarChar(255)
+  updatedAt  DateTime @map("UpdatedAt") @db.DateTime2
+
+  @@unique([provider, module, version])
+  @@map("IntegrationMappingVersions")
+}
+
 model User {
   id           Int     @id @default(autoincrement()) @map("id")
   email        String  @unique @db.VarChar(255)
@@ -289,6 +317,7 @@ model AuditLog {
 
   @@index([transactionTypeId])
   @@index([runId])
+  @@index([startedAt(sort: Desc), id(sort: Desc)], map: "AuditLogs_StartedAt_Id_idx")
   @@map("AuditLogs")
 }
 
@@ -317,5 +346,6 @@ model AuditTransactionItem {
   auditLog     AuditLog @relation(fields: [auditLogId], references: [id], onDelete: Cascade)
 
   @@index([auditLogId])
+  @@index([auditLogId, status, action, id], map: "AuditItems_Run_Status_Action_Id_idx")
   @@map("AuditTransactionItems")
 }

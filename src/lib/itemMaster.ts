@@ -18,12 +18,13 @@ const itemMasterConfig: sql.config = {
 };
 
 let itemMasterPool: ConnectionPool | null = null;
+let pendingConnection: Promise<ConnectionPool> | null = null;
 
 export const getItemMasterPool = async (): Promise<ConnectionPool> => {
   if (itemMasterPool && itemMasterPool.connected) {
     return itemMasterPool;
   }
 
-  itemMasterPool = await new sql.ConnectionPool(itemMasterConfig).connect();
-  return itemMasterPool;
+  if (!pendingConnection) pendingConnection = new sql.ConnectionPool(itemMasterConfig).connect().then(pool => { itemMasterPool = pool; return pool; }).finally(() => { pendingConnection = null; });
+  return pendingConnection;
 };

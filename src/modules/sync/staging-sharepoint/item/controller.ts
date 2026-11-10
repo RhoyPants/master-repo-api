@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { runItemStagingSharePointSync, runItemStagingSharePointSyncByCodes } from "./service";
+import { runItemStagingSharePointSync as runItemStagingSharePointSyncUntracked, runItemStagingSharePointSyncByCodes as runItemStagingSharePointSyncByCodesUntracked } from "./service";
+import { auditLegacySync } from "../../../../lib/audit-legacy-sync";
+const runItemStagingSharePointSync = (...args: Parameters<typeof runItemStagingSharePointSyncUntracked>) => auditLegacySync('item', () => runItemStagingSharePointSyncUntracked(...args), args.length > 0);
+const runItemStagingSharePointSyncByCodes = (...args: Parameters<typeof runItemStagingSharePointSyncByCodesUntracked>) => auditLegacySync('item', () => runItemStagingSharePointSyncByCodesUntracked(...args), args.length > 0);
 
 export async function runItemStagingSharePointSyncController(_req: Request, res: Response): Promise<void> {
   try {

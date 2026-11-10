@@ -4,8 +4,10 @@ import { itemClassRouter } from "./item-class/routes";
 import { uomRouter } from "./uom/routes";
 import { warehouseRouter } from "./warehouse/routes";
 import itemRouter from "./item/routes";
+import { configuredSapSync } from "../../mappings/sap/routes";
 
 export const sapStagingRouter = Router();
+sapStagingRouter.use(configuredSapSync);
 
 sapStagingRouter.post("/run", async (_req, res) => {
   const result = await runSapStagingSync();

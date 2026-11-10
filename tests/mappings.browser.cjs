@@ -1,0 +1,112 @@
+// Optional browser integration check. Creates and removes only its own draft mapping.
+require('dotenv').config({ quiet: true });
+const assert = require('node:assert/strict');
+const path = require('node:path');
+const os = require('node:os');
+const { chromium } = require(process.env.MAPPING_PLAYWRIGHT_PATH || path.join(os.tmpdir(), 'master-repo-mapping-browser/node_modules/playwright-core'));
+const { PrismaClient } = require('@prisma/client');
+const jwt = require('jsonwebtoken');
+const db = new PrismaClient();
+const fixtureModule = 'browser-check-' + Date.now();
+let browser;
+(async () => {
+  try {
+    const select = { id: true, name: true, email: true, role: true, userType: true, authType: true };
+    const user = await db.user.findFirst({ where: { role: { not: 'admin' } }, select }) || await db.user.findFirst({ select });
+    assert.ok(user);
+    const token = jwt.sign({}, process.env.JWT_SECRET, { subject: String(user.id), expiresIn: '5m' });
+    const api = `http://127.0.0.1:${process.env.PORT || 8081}`;
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const payload = await (await fetch(api + '/api/mappings/sharepoint', { headers })).json();
+    const fixture = { ...payload.defaults.find(m => m.module === 'item'), module: fixtureModule, name: 'Browser mapping check' };
+    browser = await chromium.launch({ executablePath: process.env.MAPPING_BROWSER_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe', headless: true });
+    const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
+    const errors = [];
+    const writes = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('request', req => { if (req.method() === 'POST' && /\/run(?:\/|$)/.test(new URL(req.url()).pathname)) writes.push(req.url()); });
+    await page.addInitScript(({ user, token }) => { localStorage.setItem('token', token); localStorage.setItem('user', JSON.stringify(user)); }, { user, token });
+    await page.goto('http://127.0.0.1:5173/sharepoint-mapping');
+    await page.getByRole('heading', { name: 'SharePoint Mapping', exact: true }).waitFor();
+    assert.equal(await page.getByText('Administrator access is required for integration mappings.').count(), 0);
+    await page.getByRole('button', { name: /^Source & destination/ }).click();
+    await page.getByRole('button', { name: 'Refresh columns from SQL & SharePoint' }).click();
+    await page.getByText(/Loaded \d+ source columns and \d+ SharePoint columns/).waitFor();
+    await page.getByRole('button', { name: 'Validate & preview' }).click();
+    await page.getByText('Read-only preview · up to 5 records').waitFor();
+    assert.equal(await page.getByRole('dialog').getByText('Read-only preview · up to 5 records').count(), 1);
+    assert.equal(await page.locator('[role="alert"]').filter({ hasText: /requires a number|no longer exists|Lookup not found/ }).count(), 0);
+    console.log('Browser: live schema discovery and read-only item preview passed');
+    await page.screenshot({ path: path.join(os.tmpdir(), 'master-repo-sharepoint-mapping.png'), fullPage: true });
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    await page.locator('input[type="file"]').setInputFiles({ name: 'mapping.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(fixture)) });
+    await page.getByRole('button', { name: 'Import draft', exact: true }).click();
+    await page.getByText('Imported as an unsaved draft. Refresh columns and validate before enabling.').waitFor();
+    await page.getByRole('button', { name: 'Refresh columns from SQL & SharePoint' }).click();
+    await page.getByText(/Loaded \d+ source columns and \d+ SharePoint columns/).waitFor();
+    await page.getByRole('button', { name: 'Save mapping', exact: true }).click();
+    await page.getByText(/Saved version 1/).waitFor();
+    assert.equal(await page.getByRole('dialog').getByText(/Saved version 1/).count(), 1);
+    await page.getByRole('dialog').getByRole('button', { name: 'Close', exact: true }).click();
+    const afterSave = await (await fetch(api + '/api/mappings/sharepoint', { headers })).json();
+    const saved = afterSave.saved.find(m => m.module === fixtureModule);
+    assert.equal(saved.enabled, false); assert.equal(saved.version, 1);
+    assert.deepEqual(saved.config, fixture);
+    const historyResponse = await fetch(api + '/api/mappings/sharepoint/' + fixtureModule + '/history', { headers });
+    assert.equal(historyResponse.status, 200);
+    assert.deepEqual((await historyResponse.json()).versions.map(row => row.version), [1]);
+    await page.reload();
+    await page.getByRole('heading', { name: 'SharePoint Mapping', exact: true }).waitFor();
+    await page.getByLabel('Module', { exact: true }).click();
+    await page.getByRole('option', { name: fixtureModule, exact: true }).click();
+    await page.getByText('v1 · Draft').waitFor();
+    assert.equal(await page.getByLabel('Mapping name', { exact: true }).inputValue(), fixture.name);
+    console.log('Browser: JSON import, draft save and reload passed');
+    const secondFixture = { ...fixture, name: 'Browser mapping version two' };
+    const update = await fetch(api + '/api/mappings/sharepoint/' + fixtureModule, { method: 'PUT', headers, body: JSON.stringify({ config: secondFixture, enabled: false, version: 1 }) });
+    assert.equal(update.status, 200);
+    const conflict = await fetch(api + '/api/mappings/sharepoint/' + fixtureModule, { method: 'PUT', headers, body: JSON.stringify({ config: fixture, enabled: false, version: 1 }) });
+    assert.equal(conflict.status, 409);
+    await page.reload();
+    await page.getByRole('heading', { name: 'SharePoint Mapping', exact: true }).waitFor();
+    await page.getByLabel('Module', { exact: true }).click();
+    await page.getByRole('option', { name: fixtureModule, exact: true }).click();
+    await page.getByText('v2 · Draft', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'More actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Version history', exact: true }).click();
+    const historyDialog = page.getByRole('dialog');
+    await historyDialog.getByRole('heading', { name: secondFixture.name, exact: true }).waitFor();
+    assert.equal(await historyDialog.locator('pre').count(), 0);
+    await historyDialog.getByLabel('Saved version', { exact: true }).click();
+    await page.getByRole('option', { name: /^v1 ·/ }).click();
+    await historyDialog.getByRole('heading', { name: fixture.name, exact: true }).waitFor();
+    const savedRows = historyDialog.getByRole('table', { name: 'Saved field mappings', exact: true }).locator(':scope > tbody > tr');
+    assert.equal(await savedRows.count(), fixture.fields.length);
+    for (const [index, field] of fixture.fields.entries()) {
+      assert.equal(await savedRows.nth(index).locator(':scope > td').nth(1).textContent(), field.target);
+    }
+    await historyDialog.getByRole('button', { name: 'Close', exact: true }).click();
+    assert.equal(await page.getByLabel('Mapping name', { exact: true }).inputValue(), secondFixture.name);
+    const older = await fetch(api + '/api/mappings/sharepoint/' + fixtureModule + '/history/1', { headers });
+    assert.deepEqual((await older.json()).config, fixture);
+    for (const suffix of ['/history/0', '/history/nope', '/history?beforeVersion=-1']) {
+      assert.equal((await fetch(api + '/api/mappings/sharepoint/' + fixtureModule + suffix, { headers })).status, 400);
+    }
+    assert.equal((await fetch(api + '/api/mappings/sharepoint/' + fixtureModule + '/history/999', { headers })).status, 404);
+    console.log('Version history: v1/v2 readable mappings, stored snapshots, read-only selection, validation and missing-version errors passed');
+    console.log('API: stale version save correctly rejected with 409');
+    const invalid = JSON.parse(JSON.stringify(fixture)); invalid.fields[0].target = 'RemovedColumn';
+    const badSave = await fetch(api + '/api/mappings/sharepoint/' + fixtureModule, { method: 'PUT', headers, body: JSON.stringify({ config: invalid, enabled: false, version: 2 }) });
+    assert.equal(badSave.status, 400);
+    assert.match((await badSave.json()).message, /no longer exists/);
+    assert.equal(errors.length, 0, errors.join('\n'));
+    assert.equal(writes.length, 0, 'The browser check must never trigger a SharePoint sync');
+    console.log('Browser: no runtime errors; no sync requests sent');
+  } catch (error) { console.error(error.message); process.exitCode = 1; }
+  finally {
+    if (browser) await browser.close();
+    await db.$executeRaw`DELETE FROM dbo.IntegrationMappingVersions WHERE Provider = 'sharepoint' AND Module = ${fixtureModule}`;
+    await db.$executeRaw`DELETE FROM dbo.IntegrationMappings WHERE Provider = 'sharepoint' AND Module = ${fixtureModule}`;
+    await db.$disconnect();
+  }
+})();

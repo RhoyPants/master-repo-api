@@ -1,3 +1,4 @@
+import { auditActorData } from "../../../../lib/audit-context";
 import { randomUUID } from "crypto";
 import { getSapPool } from "../../../../lib/sap";
 import { prisma } from "../../../../lib/prisma";
@@ -71,7 +72,7 @@ const createAuditLog = async (transactionCode: string) => {
   });
 
   const auditLog = await prisma.auditLog.create({
-    data: {
+    data: { ...auditActorData(),
       transactionTypeId: txType.id,
       runId,
       status: "RUNNING",
@@ -179,6 +180,7 @@ const syncItemClassFromSapRows = async ({
               referenceKey: row.ItmsGrpCod,
               action: "UPDATE",
               status: "SUCCESS",
+              payload: JSON.stringify({ changes }),
             },
           });
         } else {
@@ -287,7 +289,7 @@ const syncItemClassFromSapRows = async ({
   }
 };
 
-const fetchSapItemClassByCodes = async (codes: string[]) => {
+export const fetchSapItemClassByCodes = async (codes: string[]) => {
   const normalizedCodes = normalizeCodes(codes);
 
   if (normalizedCodes.length === 0) {
@@ -341,7 +343,7 @@ const fetchSapItemClassByCodes = async (codes: string[]) => {
   };
 };
 
-export const runItemClassSync = async () => {
+export const fetchSapItemClasses = async () => {
   const pool = await getSapPool();
   const result = await pool.request().query<SapItemClassRow>(`
     SELECT
@@ -353,10 +355,15 @@ export const runItemClassSync = async () => {
     ORDER BY U_Initials ASC
   `);
 
+  return result.recordset;
+};
+
+export const runItemClassSync = async () => {
+  const rows = await fetchSapItemClasses();
   return syncItemClassFromSapRows({
-    sapRows: result.recordset,
+    sapRows: rows,
     transactionCode: TRANSACTION_CODE,
-    fetchMessage: `Fetched ${result.recordset.length} item classes from SAP`,
+    fetchMessage: `Fetched ${rows.length} item classes from SAP`,
   });
 };
 

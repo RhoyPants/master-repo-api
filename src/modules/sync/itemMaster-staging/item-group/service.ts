@@ -1,3 +1,4 @@
+import { auditActorData } from "../../../../lib/audit-context";
 import { randomUUID } from "crypto";
 import { getItemMasterPool } from "../../../../lib/itemMaster";
 import { prisma } from "../../../../lib/prisma";
@@ -87,18 +88,18 @@ const getChanges = (
   return changes;
 };
 
-const createAuditLog = async () => {
+const createAuditLog = async (transactionCode: string) => {
   const runId = randomUUID();
   const startedAt = new Date();
 
   const txType = await prisma.transactionType.upsert({
-    where: { code: TRANSACTION_CODE },
+    where: { code: transactionCode },
     update: {},
-    create: { code: TRANSACTION_CODE, isActive: true },
+    create: { code: transactionCode, isActive: true },
   });
 
   const auditLog = await prisma.auditLog.create({
-    data: {
+    data: { ...auditActorData(),
       transactionTypeId: txType.id,
       runId,
       status: "RUNNING",
@@ -118,7 +119,7 @@ const normalizeCodes = (codes: string[]) => {
   return [...new Set(codes.map((c: string) => c.trim().toUpperCase()).filter((c: string) => c.length > 0))];
 };
 
-const fetchItemMasterRows = async () => {
+export const fetchItemMasterRows = async () => {
   const pool = await getItemMasterPool();
 
   const result = await pool.request().query<ItemMasterItemGroupRow>(`
@@ -186,7 +187,7 @@ const syncItemGroupRows = async ({
   transactionCode: string;
   fetchMessage: string;
 }) => {
-  const { runId, startedAt, auditLog } = await createAuditLog();
+  const { runId, startedAt, auditLog } = await createAuditLog(transactionCode);
 
   let inserted = 0;
   let updated = 0;
@@ -229,7 +230,7 @@ const syncItemGroupRows = async ({
           updated++;
           items.push({ itemGroupId, action: "UPDATE", status: "SUCCESS", changes });
           await prisma.auditTransactionItem.create({
-            data: { auditLogId: auditLog.id, entity: "ItemGroup", referenceKey: itemGroupId, action: "UPDATE", status: "SUCCESS" },
+            data: { auditLogId: auditLog.id, entity: "ItemGroup", referenceKey: itemGroupId, action: "UPDATE", status: "SUCCESS", payload: JSON.stringify({ changes }) },
           });
         } else {
           await prisma.itemGroup.create({ data: { itemGroupId, ...incoming } });

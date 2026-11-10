@@ -4,8 +4,10 @@ import { stagingSharePointItemGroupRouter } from "./item-group/routes";
 import { stagingSharePointUomRouter } from "./uom/routes";
 import { stagingSharePointWarehouseRouter } from "./warehouse/routes";
 import itemRouter from "./item/routes";
+import { configuredSharePointSync } from "../../mappings/routes";
 
 export const stagingSharePointRouter = Router();
+stagingSharePointRouter.use(configuredSharePointSync);
 
 stagingSharePointRouter.use("/warehouse", stagingSharePointWarehouseRouter);
 stagingSharePointRouter.use("/item-class", stagingSharePointItemClassRouter);

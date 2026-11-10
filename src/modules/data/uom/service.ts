@@ -1,3 +1,5 @@
+import { cachedDataRead } from "../../../lib/data-read-cache";
+import { getSharePointReadToken } from "../../../lib/sharepoint-token";
 import { env } from "../../../config/env";
 import { prisma } from "../../../lib/prisma";
 import { getSapPool } from "../../../lib/sap";
@@ -60,38 +62,10 @@ const parseSharePointActive = (value: unknown): boolean => {
   return true;
 };
 
-const getAccessToken = async () => {
-  const { tenantId, clientId, clientSecret } = env.sharePoint;
-
-  if (!tenantId || !clientId || !clientSecret) {
-    throw new Error("Missing SharePoint credentials (SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET)");
-  }
-
-  const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: "https://graph.microsoft.com/.default",
-    grant_type: "client_credentials",
-  });
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  const data = (await response.json()) as { access_token?: string; error_description?: string };
-
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.error_description ?? "Failed to get SharePoint access token");
-  }
-
-  return data.access_token;
-};
+const getAccessToken = getSharePointReadToken;
 
 const graphFetchWithRetry = async (url: string, init: RequestInit, retry = 0): Promise<Response> => {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
 
   if (response.status === 429 || response.status === 503) {
     if (retry >= 5) {
@@ -158,6 +132,7 @@ export const getUomFromStaging = async (
     hasNextPage,
     count: data.length,
     data: data.map((row) => ({
+      ...row,
       uomCode: row.uomCode,
       uomName: row.uomName,
       isActive: true,
@@ -265,39 +240,43 @@ export const getUomFromSharePoint = async (
     throw new Error("Missing SharePoint UOM target (SP_UOM_SITE_ID, SP_UOM_LIST_ID)");
   }
 
-  const token = await getAccessToken();
-
-  const allItems: UomData[] = [];
-  let nextLink: string | undefined =
-    `https://graph.microsoft.com/v1.0/sites/${uomSiteId}` +
-    `/lists/${uomListId}/items?$expand=fields&$top=100`;
-
-  while (nextLink) {
-    const response = await graphFetchWithRetry(nextLink, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`SharePoint API error: ${response.statusText}`);
+  const allItems = await cachedDataRead('sharepoint:uom', async () => {
+    const token = await getAccessToken();
+  
+    const allItems: UomData[] = [];
+    let nextLink: string | undefined =
+      `https://graph.microsoft.com/v1.0/sites/${uomSiteId}` +
+      `/lists/${uomListId}/items?$expand=fields&$top=100`;
+  
+    while (nextLink) {
+      const response = await graphFetchWithRetry(nextLink, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+  
+      if (!response.ok) {
+        throw new Error(`SharePoint API error: ${response.statusText}`);
+      }
+  
+      const data = (await response.json()) as {
+        value?: Array<{ fields?: Record<string, unknown> }>;
+        "@odata.nextLink"?: string;
+      };
+  
+      allItems.push(
+        ...(data.value || []).map((item) => ({
+          uomCode: String(item.fields?.ShortDescription || item.fields?.UomCode || item.fields?.Code || "").trim().toUpperCase(),
+          uomName: String(item.fields?.Description || item.fields?.UomName || item.fields?.Title || "").trim().toUpperCase(),
+          isActive: parseSharePointActive(item.fields?.isActive ?? item.fields?.IsActive),
+        })),
+      );
+  
+      nextLink = data["@odata.nextLink"];
     }
-
-    const data = (await response.json()) as {
-      value?: Array<{ fields?: Record<string, unknown> }>;
-      "@odata.nextLink"?: string;
-    };
-
-    allItems.push(
-      ...(data.value || []).map((item) => ({
-        uomCode: String(item.fields?.ShortDescription || item.fields?.UomCode || item.fields?.Code || "").trim().toUpperCase(),
-        uomName: String(item.fields?.Description || item.fields?.UomName || item.fields?.Title || "").trim().toUpperCase(),
-        isActive: parseSharePointActive(item.fields?.isActive ?? item.fields?.IsActive),
-      })),
-    );
-
-    nextLink = data["@odata.nextLink"];
-  }
+  
+    return allItems;
+  });
 
   let filtered = allItems;
 

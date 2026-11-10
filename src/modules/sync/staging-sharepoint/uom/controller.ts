@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { runUomStagingSharePointSync, runUomStagingSharePointSyncByCodes } from "./service";
+import { runUomStagingSharePointSync as runUomStagingSharePointSyncUntracked, runUomStagingSharePointSyncByCodes as runUomStagingSharePointSyncByCodesUntracked } from "./service";
+import { auditLegacySync } from "../../../../lib/audit-legacy-sync";
+const runUomStagingSharePointSync = (...args: Parameters<typeof runUomStagingSharePointSyncUntracked>) => auditLegacySync('uom', () => runUomStagingSharePointSyncUntracked(...args), args.length > 0);
+const runUomStagingSharePointSyncByCodes = (...args: Parameters<typeof runUomStagingSharePointSyncByCodesUntracked>) => auditLegacySync('uom', () => runUomStagingSharePointSyncByCodesUntracked(...args), args.length > 0);
 
 export const runUomStagingSharePointSyncController = async (_req: Request, res: Response) => {
   try {

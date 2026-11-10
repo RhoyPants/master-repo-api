@@ -1,3 +1,4 @@
+import { auditActorData } from "../../../../lib/audit-context";
 import { randomUUID } from "crypto";
 import { getSapPool } from "../../../../lib/sap";
 import { prisma } from "../../../../lib/prisma";
@@ -47,7 +48,7 @@ const TRANSACTION_CODE_SELECTED = "SAP2SDB_ITEM_SELECTED";
 
 /* ===================== HELPER FUNCTIONS ===================== */
 
-function normalizeSapFlag(value: unknown): boolean {
+export function normalizeSapFlag(value: unknown): boolean {
   if (typeof value === "boolean") return value;
 
   if (typeof value === "number") return value === 1;
@@ -62,7 +63,7 @@ function normalizeSapFlag(value: unknown): boolean {
 
 /* ===================== FETCH FUNCTIONS ===================== */
 
-async function fetchSAPItemsFromOITM(): Promise<SAPItemRow[]> {
+export async function fetchSAPItemsFromOITM(): Promise<SAPItemRow[]> {
   const pool = await getSapPool();
 
   const query = `
@@ -97,7 +98,7 @@ function normalizeItemCodes(codes: string[]): string[] {
   return [...new Set(codes.map((c) => String(c ?? "").trim().toUpperCase()))].filter((c) => c.length > 0);
 }
 
-async function fetchSAPItemsByCodes(codes: string[]): Promise<{ requestedCodes: string[]; foundRows: SAPItemRow[]; missingCodes: string[] }> {
+export async function fetchSAPItemsByCodes(codes: string[]): Promise<{ requestedCodes: string[]; foundRows: SAPItemRow[]; missingCodes: string[] }> {
   const requestedCodes = normalizeItemCodes(codes);
 
   if (requestedCodes.length === 0) {
@@ -147,6 +148,45 @@ async function fetchSAPItemsByCodes(codes: string[]): Promise<{ requestedCodes: 
 
 /* ===================== SYNC HELPER ===================== */
 
+export function buildItemReferenceMaps(
+  stagingItemClasses: Array<{ itmsGrpCod: string; initials: string }>,
+  stagingUoms: Array<{ id: number; uomCode: string }>,
+) {
+  const itemClassCodeSet = new Set(stagingItemClasses.map(row => row.itmsGrpCod.toUpperCase()));
+  const itemClassInitialsToCode = new Map<string, string>();
+  const ambiguousItemClassInitials = new Set<string>();
+  for (const itemClass of stagingItemClasses) {
+    const initials = String(itemClass.initials ?? "").trim().toUpperCase();
+    const code = String(itemClass.itmsGrpCod ?? "").trim().toUpperCase();
+    if (!initials || !code) continue;
+    const existing = itemClassInitialsToCode.get(initials);
+    if (existing && existing !== code) {
+      ambiguousItemClassInitials.add(initials);
+      itemClassInitialsToCode.delete(initials);
+    } else if (!ambiguousItemClassInitials.has(initials)) itemClassInitialsToCode.set(initials, code);
+  }
+  return { itemClassCodeSet, itemClassInitialsToCode, ambiguousItemClassInitials,
+    uomCodeToId: new Map(stagingUoms.map(row => [row.uomCode.toUpperCase(), row.id])) };
+}
+
+export function resolveItemReferences(row: SAPItemRow, maps: ReturnType<typeof buildItemReferenceMaps>) {
+  const normalizedItemClassCode = String(row.itemClassCode ?? "").trim().toUpperCase();
+  const normalizedUomCode = String(row.UOM ?? "").trim().toUpperCase();
+  if (normalizedItemClassCode && maps.ambiguousItemClassInitials.has(normalizedItemClassCode)) {
+    throw new Error(`Ambiguous ItemClass initials in staging for itemClassCode=${normalizedItemClassCode}`);
+  }
+  const resolvedItemClassCode = normalizedItemClassCode
+    ? maps.itemClassCodeSet.has(normalizedItemClassCode) ? normalizedItemClassCode : (maps.itemClassInitialsToCode.get(normalizedItemClassCode) ?? "")
+    : "";
+  if (normalizedItemClassCode && !resolvedItemClassCode) {
+    throw new Error(`Missing ItemClass in staging for itemClassCode=${normalizedItemClassCode} (no matching itmsGrpCod/initials)`);
+  }
+  if (normalizedUomCode && !maps.uomCodeToId.has(normalizedUomCode)) {
+    throw new Error(`Missing UOM in staging for uomCode=${normalizedUomCode}`);
+  }
+  return { resolvedItemClassCode, normalizedUomCode, resolvedUomId: normalizedUomCode ? maps.uomCodeToId.get(normalizedUomCode)! : null };
+}
+
 async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode: string; fetchMessage: string }): Promise<SyncResult> {
   const { sourceRows, transactionCode, fetchMessage } = options;
 
@@ -186,7 +226,7 @@ async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode
   });
 
   const auditLog = await prisma.auditLog.create({
-    data: {
+    data: { ...auditActorData(),
       transactionTypeId: txType.id,
       runId,
       status: "RUNNING",
@@ -216,29 +256,7 @@ async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode
     select: { id: true, uomCode: true },
   });
 
-  const itemClassCodeSet = new Set(stagingItemClasses.map((row) => row.itmsGrpCod.toUpperCase()));
-  const itemClassInitialsToCode = new Map<string, string>();
-  const ambiguousItemClassInitials = new Set<string>();
-
-  for (const itemClass of stagingItemClasses) {
-    const initials = String(itemClass.initials ?? "").trim().toUpperCase();
-    const itmsGrpCod = String(itemClass.itmsGrpCod ?? "").trim().toUpperCase();
-
-    if (!initials || !itmsGrpCod) continue;
-
-    const existingCode = itemClassInitialsToCode.get(initials);
-    if (existingCode && existingCode !== itmsGrpCod) {
-      ambiguousItemClassInitials.add(initials);
-      itemClassInitialsToCode.delete(initials);
-      continue;
-    }
-
-    if (!ambiguousItemClassInitials.has(initials)) {
-      itemClassInitialsToCode.set(initials, itmsGrpCod);
-    }
-  }
-
-  const uomCodeToId = new Map(stagingUoms.map((row) => [row.uomCode.toUpperCase(), row.id]));
+  const referenceMaps = buildItemReferenceMaps(stagingItemClasses, stagingUoms);
 
   for (const row of sourceRows) {
     try {
@@ -271,97 +289,19 @@ async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode
         where: { itemCode: code },
       });
 
-      const normalizedItemClassCode = String(row.itemClassCode ?? "").trim().toUpperCase();
-      const normalizedUomCode = String(row.UOM ?? "").trim().toUpperCase();
-
-      if (normalizedItemClassCode && ambiguousItemClassInitials.has(normalizedItemClassCode)) {
+      let references: ReturnType<typeof resolveItemReferences>;
+      try { references = resolveItemReferences(row, referenceMaps); }
+      catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
         syncResult.failedCount++;
-        syncResult.failedRows.push({
-          code,
-          error: `Ambiguous ItemClass initials in staging for itemClassCode=${normalizedItemClassCode}`,
-        });
-        syncResult.data.push({
-          code,
-          action: "UPSERT",
-          status: "FAILED",
-          error: `Ambiguous ItemClass initials in staging for itemClassCode=${normalizedItemClassCode}`,
-        });
-
-        await prisma.auditTransactionItem.create({
-          data: {
-            auditLogId: auditLog.id,
-            entity: "Item",
-            referenceKey: code,
-            action: "UPSERT",
-            status: "FAILED",
-            errorMessage: `Ambiguous ItemClass initials in staging for itemClassCode=${normalizedItemClassCode}`,
-          },
-        });
-
+        syncResult.failedRows.push({ code, error: message });
+        syncResult.data.push({ code, action: "UPSERT", status: "FAILED", error: message });
+        await prisma.auditTransactionItem.create({ data: {
+          auditLogId: auditLog.id, entity: "Item", referenceKey: code, action: "UPSERT", status: "FAILED", errorMessage: message,
+        } });
         continue;
       }
-
-      const resolvedItemClassCode = normalizedItemClassCode
-        ? itemClassCodeSet.has(normalizedItemClassCode)
-          ? normalizedItemClassCode
-          : (itemClassInitialsToCode.get(normalizedItemClassCode) ?? "")
-        : "";
-
-      if (normalizedItemClassCode && !resolvedItemClassCode) {
-        syncResult.failedCount++;
-        syncResult.failedRows.push({
-          code,
-          error: `Missing ItemClass in staging for itemClassCode=${normalizedItemClassCode} (no matching itmsGrpCod/initials)`,
-        });
-        syncResult.data.push({
-          code,
-          action: "UPSERT",
-          status: "FAILED",
-          error: `Missing ItemClass in staging for itemClassCode=${normalizedItemClassCode} (no matching itmsGrpCod/initials)`,
-        });
-
-        await prisma.auditTransactionItem.create({
-          data: {
-            auditLogId: auditLog.id,
-            entity: "Item",
-            referenceKey: code,
-            action: "UPSERT",
-            status: "FAILED",
-            errorMessage: `Missing ItemClass in staging for itemClassCode=${normalizedItemClassCode} (no matching itmsGrpCod/initials)`,
-          },
-        });
-
-        continue;
-      }
-
-      if (normalizedUomCode && !uomCodeToId.has(normalizedUomCode)) {
-        syncResult.failedCount++;
-        syncResult.failedRows.push({
-          code,
-          error: `Missing UOM in staging for uomCode=${normalizedUomCode}`,
-        });
-        syncResult.data.push({
-          code,
-          action: "UPSERT",
-          status: "FAILED",
-          error: `Missing UOM in staging for uomCode=${normalizedUomCode}`,
-        });
-
-        await prisma.auditTransactionItem.create({
-          data: {
-            auditLogId: auditLog.id,
-            entity: "Item",
-            referenceKey: code,
-            action: "UPSERT",
-            status: "FAILED",
-            errorMessage: `Missing UOM in staging for uomCode=${normalizedUomCode}`,
-          },
-        });
-
-        continue;
-      }
-
-      const resolvedUomId = normalizedUomCode ? (uomCodeToId.get(normalizedUomCode) ?? null) : null;
+      const { resolvedItemClassCode, normalizedUomCode, resolvedUomId } = references;
 
       const itemData = {
         itemDescription: row.ItemDescription ?? "",
@@ -478,6 +418,13 @@ async function syncItemRows(options: { sourceRows: SAPItemRow[]; transactionCode
         }
       }
 
+      const changes = existingItem && action === "UPDATE" ? Object.entries(itemData)
+        .filter(([field, value]) => field !== "updatedAt" && (existingItem as unknown as Record<string, unknown>)[field] !== value)
+        .map(([field, to]) => ({ field, from: (existingItem as unknown as Record<string, unknown>)[field], to })) : [];
+      await prisma.auditTransactionItem.create({ data: {
+        auditLogId: auditLog.id, entity: "Item", referenceKey: code, action, status: "SUCCESS",
+        payload: JSON.stringify({ changes, ...(action === "INSERT" ? { values: { itemCode: code, ...itemData } } : {}) }),
+      } });
       if (action === "SKIP") {
         syncResult.data.push({
           code,

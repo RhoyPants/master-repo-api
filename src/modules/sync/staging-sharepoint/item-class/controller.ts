@@ -1,5 +1,7 @@
 import { Request, Response } from "express";
-import { runItemClassStagingSharePointSync } from "./service";
+import { runItemClassStagingSharePointSync as runItemClassStagingSharePointSyncUntracked } from "./service";
+import { auditLegacySync } from "../../../../lib/audit-legacy-sync";
+const runItemClassStagingSharePointSync = (...args: Parameters<typeof runItemClassStagingSharePointSyncUntracked>) => auditLegacySync('item-class', () => runItemClassStagingSharePointSyncUntracked(...args), args.length > 0);
 
 export const runItemClassStagingSharePointSyncController = async (_req: Request, res: Response) => {
   try {

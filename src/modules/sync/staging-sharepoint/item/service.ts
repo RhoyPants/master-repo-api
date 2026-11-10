@@ -186,6 +186,7 @@ interface BatchSyncResult {
   skippedCount: number;
   failedCount: number;
   failedItems: Array<{ code: string; error: string }>;
+  items: Array<{ itemCode: string; action: string; status: string; error?: string }>;
 }
 
 type StagingItemForSync = {
@@ -276,11 +277,13 @@ async function syncItemsToSharePoint(items: StagingItemForSync[], token: string)
     skippedCount: 0,
     failedCount: 0,
     failedItems: [],
+    items: [],
   };
 
   for (const item of items) {
     try {
       const status = await logItemToSharePoint(item, token);
+      result.items.push({ itemCode: item.itemCode, action: status === "created" ? "INSERT" : status === "updated" ? "UPDATE" : "SKIP", status: "SUCCESS" });
 
       if (status === "created") {
         result.createdCount++;
@@ -292,6 +295,7 @@ async function syncItemsToSharePoint(items: StagingItemForSync[], token: string)
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       result.failedCount++;
+      result.items.push({ itemCode: item.itemCode, action: "UPSERT", status: "FAILED", error: errorMessage });
       result.failedItems.push({
         code: String(item.itemCode ?? "UNKNOWN"),
         error: errorMessage,
@@ -314,6 +318,7 @@ export async function runItemStagingSharePointSync(): Promise<BatchSyncResult> {
     skippedCount: 0,
     failedCount: 0,
     failedItems: [],
+    items: [],
   };
 
   if (items.length === 0) return result;
@@ -324,6 +329,7 @@ export async function runItemStagingSharePointSync(): Promise<BatchSyncResult> {
   result.skippedCount = syncResult.skippedCount;
   result.failedCount = syncResult.failedCount;
   result.failedItems = syncResult.failedItems;
+  result.items = syncResult.items;
 
   return result;
 }

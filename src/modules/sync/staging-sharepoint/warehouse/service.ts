@@ -280,6 +280,7 @@ const syncWarehousesToSharePoint = async (
   let skipped = 0;
   let failed = 0;
   const failedItems: WarehouseSyncItem[] = [];
+  const items: WarehouseSyncItem[] = [];
 
   for (const warehouse of warehouses) {
     const whCode = norm(warehouse.whCode);
@@ -314,6 +315,7 @@ const syncWarehousesToSharePoint = async (
         await ensureOk(createResponse, `Create warehouse ${whCode}`);
 
         inserted++;
+        items.push({ whCode, action: "INSERT", status: "SUCCESS" });
         continue;
       }
 
@@ -325,6 +327,7 @@ const syncWarehousesToSharePoint = async (
 
       if (changes.length === 0) {
         skipped++;
+        items.push({ whCode, action: "SKIP", status: "SUCCESS" });
         continue;
       }
 
@@ -340,8 +343,10 @@ const syncWarehousesToSharePoint = async (
       await ensureOk(updateResponse, `Update warehouse ${whCode}`);
 
       updated++;
+      items.push({ whCode, action: "UPDATE", status: "SUCCESS" });
     } catch (error) {
       failed++;
+      items.push({ whCode, action: pendingAction, status: "FAILED", error: (error as Error).message });
       failedItems.push({
         whCode,
         action: pendingAction,
@@ -358,6 +363,7 @@ const syncWarehousesToSharePoint = async (
     skippedCount: skipped,
     failedCount: failed,
     failedItems,
+    items,
   };
 };
 

@@ -1,3 +1,4 @@
+import { auditActorData } from "../../../../lib/audit-context";
 import { randomUUID } from "crypto";
 import { getSapPool } from "../../../../lib/sap";
 import { prisma } from "../../../../lib/prisma";
@@ -42,7 +43,7 @@ const createAuditLog = async (transactionCode: string) => {
   });
 
   const auditLog = await prisma.auditLog.create({
-    data: {
+    data: { ...auditActorData(),
       transactionTypeId: txType.id,
       runId,
       status: "RUNNING",
@@ -58,7 +59,7 @@ const createAuditLog = async (transactionCode: string) => {
   return { runId, startedAt, auditLog };
 };
 
-const fetchSapUomsByCodes = async (codes: string[]) => {
+export const fetchSapUomsByCodes = async (codes: string[]) => {
   const requestedCodes = normalizeCodes(codes);
 
   if (requestedCodes.length === 0) {
@@ -236,6 +237,7 @@ const syncUomFromSapRows = async ({
             referenceKey: uomCode,
             action: "UPDATE",
             status: "SUCCESS",
+              payload: JSON.stringify({ changes: [{ field: "uomName", from: existing.uomName, to: uomName }] }),
           },
         });
       } catch (itemErr) {
@@ -316,7 +318,7 @@ const syncUomFromSapRows = async ({
   }
 };
 
-export const runUomSync = async () => {
+export const fetchSapUoms = async () => {
   const pool = await getSapPool();
   const result = await pool.request().query<SapUomRow>(`
     SELECT
@@ -326,10 +328,15 @@ export const runUomSync = async () => {
     ORDER BY UomCode
   `);
 
+  return result.recordset;
+};
+
+export const runUomSync = async () => {
+  const rows = await fetchSapUoms();
   return syncUomFromSapRows({
-    sapRows: result.recordset,
+    sapRows: rows,
     transactionCode: TRANSACTION_CODE,
-    fetchMessage: `Fetched ${result.recordset.length} UOM rows from SAP`,
+    fetchMessage: `Fetched ${rows.length} UOM rows from SAP`,
   });
 };
 

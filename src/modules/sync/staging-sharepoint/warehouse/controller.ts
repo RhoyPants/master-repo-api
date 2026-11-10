@@ -1,5 +1,8 @@
 import { Request, Response } from "express";
-import { runWarehouseStagingSharePointSync, runWarehouseStagingSharePointSyncByCodes } from "./service";
+import { runWarehouseStagingSharePointSync as runWarehouseStagingSharePointSyncUntracked, runWarehouseStagingSharePointSyncByCodes as runWarehouseStagingSharePointSyncByCodesUntracked } from "./service";
+import { auditLegacySync } from "../../../../lib/audit-legacy-sync";
+const runWarehouseStagingSharePointSync = (...args: Parameters<typeof runWarehouseStagingSharePointSyncUntracked>) => auditLegacySync('warehouse', () => runWarehouseStagingSharePointSyncUntracked(...args), args.length > 0);
+const runWarehouseStagingSharePointSyncByCodes = (...args: Parameters<typeof runWarehouseStagingSharePointSyncByCodesUntracked>) => auditLegacySync('warehouse', () => runWarehouseStagingSharePointSyncByCodesUntracked(...args), args.length > 0);
 
 export const runWarehouseStagingSharePointSyncController = async (_req: Request, res: Response) => {
   try {

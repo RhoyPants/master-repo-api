@@ -1,3 +1,4 @@
+import { auditActorData } from "../../../../lib/audit-context";
 import { randomUUID } from "crypto";
 import { getSapPool } from "../../../../lib/sap";
 import { prisma } from "../../../../lib/prisma";
@@ -75,7 +76,7 @@ const createAuditLog = async (transactionCode: string) => {
   });
 
   const auditLog = await prisma.auditLog.create({
-    data: {
+    data: { ...auditActorData(),
       transactionTypeId: txType.id,
       runId,
       status: "RUNNING",
@@ -180,6 +181,7 @@ const syncWarehousesFromSapRows = async ({
               referenceKey: row.WhCode,
               action: "UPDATE",
               status: "SUCCESS",
+              payload: JSON.stringify({ changes }),
             },
           });
         } else {
@@ -283,7 +285,7 @@ const syncWarehousesFromSapRows = async ({
   }
 };
 
-const fetchSapWarehousesByCodes = async (whCodes: string[]) => {
+export const fetchSapWarehousesByCodes = async (whCodes: string[]) => {
   const normalizedCodes = normalizeWhCodes(whCodes);
 
   if (normalizedCodes.length === 0) {
@@ -324,7 +326,7 @@ const fetchSapWarehousesByCodes = async (whCodes: string[]) => {
   };
 };
 
-export const runWarehouseSync = async () => {  
+export const fetchSapWarehouses = async () => {
   const pool = await getSapPool();
   const result = await pool.request().query<SapWarehouseRow>(`
       SELECT
@@ -335,10 +337,15 @@ export const runWarehouseSync = async () => {
       FROM OWHS
     `);
 
+  return result.recordset;
+};
+
+export const runWarehouseSync = async () => {
+  const rows = await fetchSapWarehouses();
   return syncWarehousesFromSapRows({
-    sapRows: result.recordset,
+    sapRows: rows,
     transactionCode: TRANSACTION_CODE,
-    fetchMessage: `Fetched ${result.recordset.length} warehouses from SAP`,
+    fetchMessage: `Fetched ${rows.length} warehouses from SAP`,
   });
 };
 
@@ -363,6 +370,5 @@ export const runWarehouseSyncByCodes = async (whCodes: string[]) => {
     })),
   };
 };
-
 
 

@@ -1,3 +1,5 @@
+import { cachedDataRead } from "../../../lib/data-read-cache";
+import { getSharePointReadToken } from "../../../lib/sharepoint-token";
 ﻿import { getSapPool } from "../../../lib/sap";
 import { prisma } from "../../../lib/prisma";
 import { env } from "../../../config/env";
@@ -176,6 +178,7 @@ export async function getItemsFromStaging(
   });
 
   const data: StagingItem[] = raw.map((item) => ({
+    ...item,
     itemCode: clean(item.itemCode),
     itemDescription: clean(item.itemDescription),
     isActive: item.isActive,
@@ -316,63 +319,68 @@ export async function getItemsFromSharePoint(
   const limit = normalizeLimit(params.limit);
   const { search, itemCode, itemDescription, category, itemClassCode, itemGroupName } = params;
 
-  const token = await getSharePointAccessToken();
-
-  // Build server-side filter
-  const filters: string[] = [];
-  if (itemCode) filters.push(`fields/ItemCode eq '${itemCode.toUpperCase()}'`);
-  if (itemDescription) filters.push(`substringof('${itemDescription.toUpperCase()}', fields/ItemDescription)`);
-  if (category) filters.push(`substringof('${category.toUpperCase()}', fields/Category)`);
-  if (itemClassCode) filters.push(`substringof('${itemClassCode.toUpperCase()}', fields/itemClassCode)`);
-  if (itemGroupName) filters.push(`substringof('${itemGroupName.toUpperCase()}', fields/itemGroupCode)`);
-
-  const filterQuery = filters.length > 0 ? `&$filter=${filters.join(" and ")}` : "";
-
-  // Fetch using nextLink pagination - fetch ALL records first
-  let allRaw: SharePointItemRaw[] = [];
-  let nextLink: string | undefined =
-    `https://graph.microsoft.com/v1.0/sites/${env.sharePoint.imSiteId}` +
-    `/lists/${env.sharePoint.imListId}/items` +
-    `?$expand=fields&$top=100${filterQuery}`;
-
-  // Fetch all pages until no more nextLink
-  while (nextLink) {
-    const res = await fetch(nextLink, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    const text = await res.text();
-
-    if (!res.ok) {
-      throw new Error(`SharePoint API error: ${text}`);
+  let items = await cachedDataRead('sharepoint:item:' + JSON.stringify([itemCode, itemDescription, category, itemClassCode, itemGroupName]), async () => {
+    const token = await getSharePointAccessToken();
+  
+    // Build server-side filter
+    const filters: string[] = [];
+    if (itemCode) filters.push(`fields/ItemCode eq '${itemCode.toUpperCase()}'`);
+    if (itemDescription) filters.push(`substringof('${itemDescription.toUpperCase()}', fields/ItemDescription)`);
+    if (category) filters.push(`substringof('${category.toUpperCase()}', fields/Category)`);
+    if (itemClassCode) filters.push(`substringof('${itemClassCode.toUpperCase()}', fields/itemClassCode)`);
+    if (itemGroupName) filters.push(`substringof('${itemGroupName.toUpperCase()}', fields/itemGroupCode)`);
+  
+    const filterQuery = filters.length > 0 ? `&$filter=${filters.join(" and ")}` : "";
+  
+    // Fetch using nextLink pagination - fetch ALL records first
+    let allRaw: SharePointItemRaw[] = [];
+    let nextLink: string | undefined =
+      `https://graph.microsoft.com/v1.0/sites/${env.sharePoint.imSiteId}` +
+      `/lists/${env.sharePoint.imListId}/items` +
+      `?$expand=fields&$top=100${filterQuery}`;
+  
+    // Fetch all pages until no more nextLink
+    while (nextLink) {
+      const res = await fetch(nextLink, {
+        signal: AbortSignal.timeout(20000),
+        headers: { Authorization: `Bearer ${token}` },
+      });
+  
+      const text = await res.text();
+  
+      if (!res.ok) {
+        throw new Error(`SharePoint API error: ${text}`);
+      }
+  
+      const json = JSON.parse(text);
+      allRaw = allRaw.concat(json.value || []);
+      nextLink = json["@odata.nextLink"];
     }
-
-    const json = JSON.parse(text);
-    allRaw = allRaw.concat(json.value || []);
-    nextLink = json["@odata.nextLink"];
-  }
-
-  // Transform to flat structure
-  let items: SharePointItem[] = allRaw.map((raw) => {
-    const f = raw.fields;
-    return {
-      itemCode: clean(f.ItemCode).toUpperCase(),
-      itemDescription: clean(f.ItemDescription),
-      category: clean(f.Category).toUpperCase(),
-      status: clean(f.Status).toUpperCase(),
-      entity: clean(f.Entity),
-      leadTime: Number(f.LeadTime || 0),
-      iswhInventory: Number(f.iswhInventory || 0) === 1,
-      isSalesInventory: Number(f.isSalesInventory || 0) === 1,
-      itemClassCode: clean(f.itemClassCode).toUpperCase(),
-      itemGroupCode: clean(f.itemGroupCode).toUpperCase(),
-      uomCode: clean(f.UOM_code).toUpperCase(),
-      isModified: Number(f.isModified || 0) === 1,
-      uom: f.UOM ? clean(f.UOM).toUpperCase() : undefined,
-      uomId: f.UOM_ID ? Number(f.UOM_ID) : undefined,
-      itemGroup: f.itemGroup ? clean(f.itemGroup).toUpperCase() : undefined,
-      itemClass: f.ItemClass ? clean(f.ItemClass).toUpperCase() : undefined,
-    };
+  
+    // Transform to flat structure
+    const items: SharePointItem[] = allRaw.map((raw) => {
+      const f = raw.fields;
+      return {
+        itemCode: clean(f.ItemCode).toUpperCase(),
+        itemDescription: clean(f.ItemDescription),
+        category: clean(f.Category).toUpperCase(),
+        status: clean(f.Status).toUpperCase(),
+        entity: clean(f.Entity),
+        leadTime: Number(f.LeadTime || 0),
+        iswhInventory: Number(f.iswhInventory || 0) === 1,
+        isSalesInventory: Number(f.isSalesInventory || 0) === 1,
+        itemClassCode: clean(f.itemClassCode).toUpperCase(),
+        itemGroupCode: clean(f.itemGroupCode).toUpperCase(),
+        uomCode: clean(f.UOM_code).toUpperCase(),
+        isModified: Number(f.isModified || 0) === 1,
+        uom: f.UOM ? clean(f.UOM).toUpperCase() : undefined,
+        uomId: f.UOM_ID ? Number(f.UOM_ID) : undefined,
+        itemGroup: f.itemGroup ? clean(f.itemGroup).toUpperCase() : undefined,
+        itemClass: f.ItemClass ? clean(f.ItemClass).toUpperCase() : undefined,
+      };
+    });
+  
+    return items;
   });
 
   // Client-side search filter
@@ -410,30 +418,4 @@ export async function getItemsFromSharePoint(
 
 /* ===================== HELPER: SharePoint Auth ===================== */
 
-async function getSharePointAccessToken(): Promise<string> {
-  const { spTenantId, spClientId, spClientSecret } = env.sharePoint;
-
-  const url = `https://login.microsoftonline.com/${spTenantId}/oauth2/v2.0/token`;
-
-  const body = new URLSearchParams({
-    client_id: spClientId,
-    client_secret: spClientSecret,
-    scope: "https://graph.microsoft.com/.default",
-    grant_type: "client_credentials",
-  });
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  const text = await res.text();
-
-  if (!res.ok) {
-    throw new Error(`SharePoint token error: ${text}`);
-  }
-
-  const data = JSON.parse(text);
-  return data.access_token;
-}
+const getSharePointAccessToken = getSharePointReadToken;

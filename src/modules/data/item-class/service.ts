@@ -1,3 +1,5 @@
+import { cachedDataRead } from "../../../lib/data-read-cache";
+import { getSharePointReadToken } from "../../../lib/sharepoint-token";
 import { env } from "../../../config/env";
 import { prisma } from "../../../lib/prisma";
 import { getSapPool } from "../../../lib/sap";
@@ -57,38 +59,10 @@ const normalizePage = (page: unknown): number => {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const getAccessToken = async () => {
-  const { tenantId, clientId, clientSecret } = env.sharePoint;
-
-  if (!tenantId || !clientId || !clientSecret) {
-    throw new Error("Missing SharePoint credentials (SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET)");
-  }
-
-  const url = `https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`;
-  const body = new URLSearchParams({
-    client_id: clientId,
-    client_secret: clientSecret,
-    scope: "https://graph.microsoft.com/.default",
-    grant_type: "client_credentials",
-  });
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  const data = (await response.json()) as { access_token?: string; error_description?: string };
-
-  if (!response.ok || !data.access_token) {
-    throw new Error(data.error_description ?? "Failed to get SharePoint access token");
-  }
-
-  return data.access_token;
-};
+const getAccessToken = getSharePointReadToken;
 
 const graphFetchWithRetry = async (url: string, init: RequestInit, retry = 0): Promise<Response> => {
-  const response = await fetch(url, init);
+  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(20000) });
 
   if (response.status === 429 || response.status === 503) {
     if (retry >= 5) {
@@ -165,6 +139,7 @@ export const getItemClassFromStaging = async (
     hasNextPage,
     count: data.length,
     data: data.map((row: any) => ({
+      ...row,
       itmsGrpCod: row.itmsGrpCod,
       initials: row.initials,
       itmsGrpNam: row.itmsGrpNam,
@@ -291,38 +266,42 @@ export const getItemClassFromSharePoint = async (
   const page = normalizePage(params.page);
   const limit = normalizeLimit(params.limit);
 
-  const token = await getAccessToken();
-
-  const allItems: ItemClassData[] = [];
-  let nextLink: string | undefined = `https://graph.microsoft.com/v1.0/sites/${env.sharePoint.itemClassSiteId}/lists/${env.sharePoint.itemClassListId}/items?$expand=fields&$top=100`;
-
-  while (nextLink && allItems.length < 10000) {
-    const response = await graphFetchWithRetry(nextLink, {
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`SharePoint API error: ${response.statusText}`);
+  const allItems = await cachedDataRead('sharepoint:item-class', async () => {
+    const token = await getAccessToken();
+  
+    const allItems: ItemClassData[] = [];
+    let nextLink: string | undefined = `https://graph.microsoft.com/v1.0/sites/${env.sharePoint.itemClassSiteId}/lists/${env.sharePoint.itemClassListId}/items?$expand=fields&$top=100`;
+  
+    while (nextLink && allItems.length < 10000) {
+      const response = await graphFetchWithRetry(nextLink, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+  
+      if (!response.ok) {
+        throw new Error(`SharePoint API error: ${response.statusText}`);
+      }
+  
+      const data = (await response.json()) as {
+        value?: Array<{ fields?: Record<string, unknown> }>;
+        "@odata.nextLink"?: string;
+      };
+  
+      allItems.push(
+        ...(data.value || []).map((item: any) => ({
+          itmsGrpCod: String(item.fields?.ItemClass_ID || "").trim().toUpperCase(),
+          initials: String(item.fields?.Code || "").trim().toUpperCase(),
+          itmsGrpNam: String(item.fields?.Description || "").trim().toUpperCase(),
+          isActive: parseSharePointActive(item.fields?.isActive ?? item.fields?.IsActive),
+        })),
+      );
+  
+      nextLink = data["@odata.nextLink"];
     }
-
-    const data = (await response.json()) as {
-      value?: Array<{ fields?: Record<string, unknown> }>;
-      "@odata.nextLink"?: string;
-    };
-
-    allItems.push(
-      ...(data.value || []).map((item: any) => ({
-        itmsGrpCod: String(item.fields?.ItemClass_ID || "").trim().toUpperCase(),
-        initials: String(item.fields?.Code || "").trim().toUpperCase(),
-        itmsGrpNam: String(item.fields?.Description || "").trim().toUpperCase(),
-        isActive: parseSharePointActive(item.fields?.isActive ?? item.fields?.IsActive),
-      })),
-    );
-
-    nextLink = data["@odata.nextLink"];
-  }
+  
+    return allItems;
+  });
 
   let filtered = allItems;
 
