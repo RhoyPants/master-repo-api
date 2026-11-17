@@ -65,6 +65,25 @@ test('enforces SharePoint required fields, types, choices and maximum lengths', 
   const c = config(); c.fields = [field('ItemCode', 'Code')];
   assert.throws(() => buildPayload(c, { ItemCode: '2' }, [{ ...destination[0], type: 'number' }], new Map(), 'create'), /requires a number/);
 });
+test('SharePoint numeric payloads accept SQL decimals without changing text conversion rules', () => {
+  const { Prisma } = require('@prisma/client');
+  const mapping = config();
+  mapping.fields.push(field('ConvertionValue', 'ConvertionValue'));
+  for (const type of ['number', 'currency']) {
+    const columns = [...destination, { name: 'ConvertionValue', displayName: 'ConvertionValue', type, required: false }];
+    for (const mode of ['create', 'update']) {
+      for (const input of ['24', '12.500001', '0']) {
+        const payload = buildPayload(mapping, { ItemCode: 'ITR-HW-036', ConvertionValue: new Prisma.Decimal(input) }, columns, new Map(), mode);
+        assert.equal(payload.ConvertionValue, Number(input));
+        assert.equal(JSON.parse(JSON.stringify(payload)).ConvertionValue, Number(input));
+      }
+      assert.equal(buildPayload(mapping, { ItemCode: 'A', ConvertionValue: null }, columns, new Map(), mode).ConvertionValue, null);
+      assert.throws(() => buildPayload(mapping, { ItemCode: 'A', ConvertionValue: '24' }, columns, new Map(), mode), /requires a number/);
+      assert.throws(() => buildPayload(mapping, { ItemCode: 'A', ConvertionValue: new Prisma.Decimal('Infinity') }, columns, new Map(), mode), /requires a number/);
+    }
+  }
+});
+
 test('all existing module templates are valid JSON configurations', () => {
   // Environment validation must not require live credentials for pure template tests.
   for (const key of ['DATABASE_URL', 'JWT_SECRET', 'SAP_DB_SERVER', 'SAP_DB_USER', 'SAP_DB_PASSWORD', 'SAP_DB_NAME']) process.env[key] ||= 'test';

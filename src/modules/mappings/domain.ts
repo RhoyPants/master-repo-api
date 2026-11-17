@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { Prisma } from "@prisma/client";
 
 export type Scalar = string | number | boolean | null;
 export type LookupDatabase = "local" | "itemmaster";
@@ -149,8 +150,12 @@ export function buildPayload(config: MappingConfig, row: Record<string, unknown>
   const result: Record<string, unknown> = {};
   for (const rule of config.fields) {
     if (rule.write && rule.write !== "always" && rule.write !== mode) continue;
-    const value = transformValue(rule, row, lookups);
+    let value = transformValue(rule, row, lookups);
     const column = columns.find(c => c.name === rule.target)!;
+    // SQL decimals arrive as Prisma objects; Graph numeric fields require JSON numbers.
+    if ((column.type === "number" || column.type === "currency") && Prisma.Decimal.isDecimal(value)) {
+      value = value.toNumber();
+    }
     if (value == null) {
       if (column.required) throw new MappingError(`${column.displayName} is required.`);
     } else if (column.type === "number" || column.type === "currency") {

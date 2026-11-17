@@ -152,6 +152,8 @@ model Item {
   itemClassName       String?    @map("ItemClassName") @db.NVarChar(150)
   uomId               Int?       @map("UOM_ID")
   uom                 String?    @map("UOM") @db.NVarChar(50)
+  inventoryOUM        String?    @map("InventoryOUM") @db.NVarChar(50)
+  convertionValue     Decimal?   @map("ConvertionValue") @db.Decimal(18, 6)
   leadTime            Int        @default(0) @map("LeadTime")
   isWHInventory       Boolean    @default(false) @map("IsWHInventory")
   isSalesInventory    Boolean    @default(false) @map("IsSalesInventory")

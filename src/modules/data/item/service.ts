@@ -3,6 +3,7 @@ import { getSharePointReadToken } from "../../../lib/sharepoint-token";
 ﻿import { getSapPool } from "../../../lib/sap";
 import { prisma } from "../../../lib/prisma";
 import { env } from "../../../config/env";
+import type { Prisma } from "@prisma/client";
 
 /* ===================== TYPES ===================== */
 
@@ -46,6 +47,8 @@ interface StagingItem {
   itemClassCode: string | null;
   itemClassName: string | null;
   uom: string | null;
+  inventoryOUM: string | null;
+  convertionValue: Prisma.Decimal | null;
   leadTime: number;
   isWHInventory: boolean;
   isSalesInventory: boolean;
@@ -60,6 +63,8 @@ interface SAPItem {
   itemClassCode: string | null;
   itemClassName: string | null;
   uom: string | null;
+  purchaseUom: string | null;
+  inventoryOUM: string | null;
   leadTime: number | null;
   iswhInventory: boolean;
   isSalesInventory: boolean;
@@ -90,6 +95,9 @@ interface SharePointItemRaw {
     ItemClass_ID?: number;
     isSalesInventory?: number;
     PurchaseCategory?: number;
+    InventoryUOM?: string | null;
+    PurchaseUOM?: string | null;
+    ConvertionValue?: number | null;
   };
 }
 
@@ -105,6 +113,9 @@ interface SharePointItem {
   itemClassCode: string;
   itemGroupCode: string;
   uomCode: string;
+  inventoryOUM: string | null;
+  purchaseUom: string | null;
+  convertionValue: number | null;
   isModified: boolean;
   uom?: string;
   uomId?: number;
@@ -186,6 +197,7 @@ export async function getItemsFromStaging(
     itemClassCode: item.itemClassCode ? clean(item.itemClassCode) : null,
     itemClassName: item.itemClassName ? clean(item.itemClassName) : null,
     uom: item.uom ? clean(item.uom) : null,
+    inventoryOUM: item.inventoryOUM ? clean(item.inventoryOUM) : null,
     leadTime: item.leadTime,
     isWHInventory: item.isWHInventory,
     isSalesInventory: item.isSalesInventory,
@@ -225,6 +237,8 @@ export async function getItemsFromSAP(
       grp.U_Initials             AS itemClassCode,
       UPPER(grp.ItmsGrpNam)      AS itemClassName,
       UPPER(uom.UomCode)         AS UOM,
+      UPPER(itm.BuyUnitMsr)      AS PurchaseUOM,
+      UPPER(itm.InvntryUom)      AS InventoryOUM,
       itm.LeadTime               AS LeadTime,
       itm.ByWh                   AS iswhInventory,
       itm.SellItem               AS isSalesInventory,
@@ -246,6 +260,8 @@ export async function getItemsFromSAP(
     itemClassCode: string | null;
     itemClassName: string | null;
     UOM: string | null;
+    PurchaseUOM: string | null;
+    InventoryOUM: string | null;
     LeadTime: number | null;
     iswhInventory: string;
     isSalesInventory: string;
@@ -290,6 +306,8 @@ export async function getItemsFromSAP(
     itemClassCode: item.itemClassCode ? clean(item.itemClassCode) : null,
     itemClassName: item.itemClassName ? clean(item.itemClassName) : null,
     uom: item.UOM ? clean(item.UOM) : null,
+    purchaseUom: item.PurchaseUOM ? clean(item.PurchaseUOM) : null,
+    inventoryOUM: item.InventoryOUM ? clean(item.InventoryOUM) : null,
     leadTime: item.LeadTime,
     iswhInventory: item.iswhInventory === "Y",
     isSalesInventory: item.isSalesInventory === "Y",
@@ -372,6 +390,9 @@ export async function getItemsFromSharePoint(
         itemClassCode: clean(f.itemClassCode).toUpperCase(),
         itemGroupCode: clean(f.itemGroupCode).toUpperCase(),
         uomCode: clean(f.UOM_code).toUpperCase(),
+        inventoryOUM: f.InventoryUOM ? clean(f.InventoryUOM) : null,
+        purchaseUom: f.PurchaseUOM ? clean(f.PurchaseUOM) : null,
+        convertionValue: f.ConvertionValue ?? null,
         isModified: Number(f.isModified || 0) === 1,
         uom: f.UOM ? clean(f.UOM).toUpperCase() : undefined,
         uomId: f.UOM_ID ? Number(f.UOM_ID) : undefined,

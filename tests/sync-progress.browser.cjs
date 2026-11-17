@@ -21,6 +21,7 @@ let browser, runGate, refreshGate, refreshStarted;
       code, uomCode: code, uomName: code, whCode: code, whName: code, itemCode: code, itemDescription: code,
       itmsGrpCod: String(index + 10), initials: code, itmsGrpNam: code, itemGroupId: String(index + 1),
       itemGroupName: code, name: code, description: code, isActive: true,
+      purchaseUom: 'PURCHASE-BOX', uom: 'INVENTORY-PC', isSalesInventory: true,
     }));
     await page.route(url => ['/api/', '/sync/', '/data/'].some(prefix => url.pathname.startsWith(prefix)), async route => {
       const request = route.request(), url = new URL(request.url());
@@ -100,6 +101,20 @@ let browser, runGate, refreshGate, refreshStarted;
       });
       await run();
     }
+    await page.goto('http://127.0.0.1:5173/items/sync');
+    const sapItems = page.getByRole('table', { name: 'SAP Items', exact: true });
+    await sapItems.getByRole('columnheader', { name: 'Purchase UOM', exact: true }).waitFor();
+    assert.equal(await sapItems.getByRole('cell', { name: 'PURCHASE-BOX', exact: true }).count(), 2);
+    assert.equal(await page.getByRole('table', { name: 'Staging Items', exact: true }).getByRole('columnheader', { name: 'Purchase UOM', exact: true }).count(), 1);
+    assert.equal(await page.getByRole('table', { name: 'Staging Items', exact: true }).getByRole('columnheader', { name: 'Conversion Value', exact: true }).count(), 1);
+    await page.getByRole('checkbox', { name: 'Select EA', exact: true }).check();
+    await page.getByRole('button', { name: 'Sync 1 selected', exact: true }).click();
+    const itemConfirm = page.getByRole('dialog', { name: 'Confirm Sync', exact: true });
+    await itemConfirm.getByRole('columnheader', { name: 'Purchase UOM', exact: true }).waitFor();
+    assert.equal(await itemConfirm.getByRole('cell', { name: 'PURCHASE-BOX', exact: true }).count(), 1);
+    assert.equal(await itemConfirm.getByRole('columnheader', { name: /Sales Inventory/i }).count(), 0);
+    await itemConfirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+    console.log('Item display: SAP Purchase UOM is visible in the source table and confirmation; Sales Inventory is hidden in confirmation without a sync request.');
     await page.goto('http://127.0.0.1:5173/uom/sync');
     await page.locator('main input[type="checkbox"]').nth(1).waitFor();
     await run('single'); await run('multiple');

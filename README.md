@@ -30,6 +30,8 @@ Starter backend API using Express, Prisma, SQL Server, and TypeScript.
 
 ## Configurable mappings
 
+The staging `dbo.Items` table includes optional `InventoryOUM` (`nvarchar(50)`) and `ConvertionValue` (`decimal(18,6)`) columns. These names are intentional. Migration `20261110054000_item_inventory_columns` adds them without backfilling existing rows (values remain NULL). Generate the Prisma client after applying the migration. Refresh mapping columns to select them; existing sync mappings and UI display are unchanged until explicitly configured. Check migration status before deployment; do not apply unrelated pending migrations merely to add these columns.
+
 - [Staging to SharePoint mappings](docs/sharepoint-mapping.md)
 - [SAP to staging mappings](docs/sap-staging-mapping.md)
 - [Item Master to staging mappings](docs/itemmaster-staging-mapping.md) — table-based Item Group mapping, preview, saved activation and history.

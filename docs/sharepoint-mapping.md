@@ -14,6 +14,10 @@ Use **Validate & preview** to inspect up to five source rows and both create/upd
 
 Enabled mappings replace the built-in mapping for the existing `/sync/staging-sharepoint/{module}/run`, `/run/single`, and `/run/multiple` URLs. Existing modules are `warehouse`, `item-class`, `item-group`, `item`, and `uom`. New modules can run from the mapping screen. Disabled/unsaved mappings preserve the existing built-in service. Disabling does not cancel an already-running sync. A run snapshots the saved configuration and records its version in the audit log.
 
+## Practical configuration guide
+
+See the [mapping configuration guide](mapping-configuration-guide.md) for field rules, UOM lookup examples, SQL Decimal handling, troubleshooting and adaptation to Item Master.
+
 ## Mapping version history
 
 Open **More actions → Version history** for a saved module to select a version in a read-only modal. A readable summary shows the mapping name, source table and matching keys, followed by field-mapping and source-filter tables. Each field shows its transformation, create/update write mode, and fixed values, value rules, or SQL lookup details where applicable. Expand **SharePoint connection details** for saved site/list IDs. Enabled/draft status, editor, and saved timestamp remain visible. The viewer uses saved internal names without live schema discovery, so historical mappings remain viewable after schema changes. Raw JSON is not shown in history; the editor's separate **View JSON** action is unchanged. History lists the newest versions first, with **Load older versions** for additional pages. Viewing history does not change the current mapping, discard unsaved edits, restore a version, or run a sync.

@@ -12,6 +12,9 @@ Warehouses, Item Class, Item Group, Items and UOM share the same Master Data and
 - Sync selection uses stable record codes, not row indexes, and can span pages (up to 2,000 keys). Changing direction/filters clears selection. Select current page means exactly that page.
 - Full sync remains separate from selection. Preview filters do not restrict the backend full-run query; the action bar states this. Unsupported directions remain available for comparison, with execution disabled. Directions that only support full sync do not offer row selection.
 - Existing full/single/multiple request URLs and payload keys are preserved. Confirmation and the blocking Sync in progress modal remain active through the operation and follow-up refresh. Duplicate submissions are guarded synchronously. Partial/failed results retain their actual API counts and error details.
+- Items consistently show **Inventory UOM**, **Purchase UOM**, and **Conversion Value** in all Master Data source tabs, both sync comparison tables, and selected-record confirmation. Item confirmation reuses the table column definitions and retains other returned record fields, so fields do not disappear when values are NULL. Missing values display `—`; zero conversion values remain `0`.
+- SAP reads inventory UOM from `OITM.InvntryUom` and purchase UOM from `OITM.BuyUnitMsr`. Staging exposes the existing `InventoryOUM` and `ConvertionValue` fields as `inventoryOUM` and `convertionValue`. SharePoint reads optional `InventoryUOM`, `PurchaseUOM`, and `ConvertionValue` list fields. These read screens do not execute saved mapping transformations: an Item Master conversion lookup appears in staging only after the configured sync populates it, not automatically in the SAP browser. Sources without a stored purchase UOM/conversion field show `—`; inventory UOM is never substituted for purchase UOM.
+- These are display/read changes only: no extra staging column, SharePoint field, automatic backfill, or saved mapping change is made. **Is Sales Inventory** stays hidden in confirmation, but its API/export values, database field, and sync behavior are preserved.
 
 ## Backend improvements
 
@@ -31,7 +34,9 @@ Shared UI: `app/lib/masterData.ts`, `app/lib/syncData.ts`, `app/components/data/
 # API
 npm run build
 node --test tests/data-read-cache.test.cjs tests/data-sharepoint-cache.test.cjs
+node --test tests/item-purchase-uom.test.cjs tests/staging-export-columns.test.cjs
 node tests/data-workspace.browser.cjs
+node tests/item-fields.browser.cjs
 node tests/sync-progress.browser.cjs
 # UI
 npm run lint

@@ -2,6 +2,10 @@
 
 Open **Mappings > Item Master > Staging Mapping** (`/itemmaster-mapping`). Create independent named mappings and freely choose an available **source table in Item Master**, **destination table in staging**, and **matching keys**. Table lists and columns come from the connected databases. The original item-group mapping continues to drive the existing sync entry points.
 
+## Shared mapping workflow
+
+See the [mapping configuration guide](mapping-configuration-guide.md) for SharePoint field rules, lookup examples and the differences when applying them to Item Master numeric destinations.
+
 ## Add independent mappings
 
 Click **New mapping**, enter a unique **New mapping ID** and **New mapping name**, and select the item-group template. **Create draft** starts an unsaved, disabled copy of that template. Choose the desired source/destination tables and keys, edit fields/filters, preview, then save. Creating a draft does not save or sync anything. IDs use lowercase letters, numbers and hyphens, up to 50 characters; duplicate IDs are rejected.
